@@ -78,6 +78,10 @@ def pix_confirmation():
 def payment_pix_page(payment_id):
     payment = Payment.query.get(payment_id)
 
+    # Payment not found
+    if not payment:
+        return render_template("404.html")
+
     # Confirmed payment page
     if payment.paid:
 
@@ -98,10 +102,15 @@ def payment_pix_page(payment_id):
 def initial_page():
     return "Payment API"
 
-# Implementing Websockets
+# Implementing connected server Websockets
 @socketio.on('connect')
 def handle_connect():
     print("Client connected to the server.")
+
+# Implementing disconnected server Websockets
+@socketio.on('disconnect')
+def handle_disconnect():
+    print("Client has disconnected to the server.")
 
 if __name__ == '__main__':
     socketio.run(app, debug=True)
