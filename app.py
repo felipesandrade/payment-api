@@ -20,7 +20,7 @@ db.init_app(app)
 # Inicializing SocketIO
 socketio = SocketIO(app)
 
-# Pix payments route
+# Create pix payment
 @app.route('/payments/pix', methods=['POST'])
 def create_payment_pix():
     data = request.get_json()
@@ -44,6 +44,7 @@ def create_payment_pix():
     return jsonify({"message": "The payment has been created.",
                     "payment": new_payment.to_dict()})
 
+# Create Qr Code
 @app.route('/payments/pix/qr_code/<file_name>', methods=['GET'])
 def get_image(file_name):
     return send_file(f"static/img/{file_name}.png", mimetype="image/png")
@@ -51,24 +52,53 @@ def get_image(file_name):
 # Recieve payment confirmation (Webhook)
 @app.route('/payments/pix/confirmation', methods=['POST'])
 def pix_confirmation():
-    return jsonify({"message": "The payment has been confirmed"})
+    data = request.get_json()
+
+    if "bank_payment_id" not in data and "value" not in data:
+        return jsonify({"message": "Invalid payment data"}), 400
+
+    payment = Payment.query.filter_by(bank_payment_id=data.get("bank_payment_id")).first()
+
+    if not payment or payment.paid:
+        return jsonify({"message": "Payment not founded"}), 404
+    
+    if data.get("value") != payment.value:
+        return jsonify({"message": "Invalid payment data"})
+    
+    payment.paid = True
+    db.session.commit()
+
+    # Send notification to connected clients
+    socketio.emit(f"payment-confirmed-{payment.id}")
+
+    return jsonify({"message": "The payment has been confirmed."})
 
 # Show payment has been confirmed (Websocket)
 @app.route('/payments/pix/<int:payment_id>', methods=['GET'])
 def payment_pix_page(payment_id):
     payment = Payment.query.get(payment_id)
 
-    return render_template("payment.html", 
+    # Confirmed payment page
+    if payment.paid:
+
+       return render_template("confirmed_payment.html", 
                            payment_id=payment.id, 
-                           value=payment.value,
-                           host=os.getenv('HOST'), 
-                           qr_code=payment.qr_code)
+                           value=payment.value)
+    
+    # Payment page
+    else:
+
+        return render_template("payment.html", 
+                            payment_id=payment.id, 
+                            value=payment.value,
+                            host=os.getenv('HOST'), 
+                            qr_code=payment.qr_code)
 
 @app.route('/', methods=['GET'])
 def initial_page():
     return "Payment API"
 
-# Implementing Websockets Backend
+# Implementing Websockets
 @socketio.on('connect')
 def handle_connect():
     print("Client connected to the server.")
